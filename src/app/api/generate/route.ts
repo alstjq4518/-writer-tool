@@ -1,53 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+export const maxDuration = 60;
 
 type GeminiModelInfo = {
   name?: string;
   supportedGenerationMethods?: string[];
 };
 
-let cachedModels: { list: string[]; expiresAt: number } | null = null;
+let cachedFlashModels: { list: string[]; expiresAt: number } | null = null;
 
-function parseVersionScore(modelId: string): number {
-  const match = modelId.match(/gemini-(\d+)(?:\.(\d+))?/i);
+function parseFlashScore(modelId: string): number {
+  const match = modelId.match(/gemini-(\d+)(?:\.(\d+))?-flash/i);
   if (!match) return 0;
   const major = Number(match[1] || 0);
   const minor = Number(match[2] || 0);
   let score = major * 100 + minor;
-  if (/pro/i.test(modelId)) score += 10;
-  if (/flash/i.test(modelId)) score += 20;
   if (/lite/i.test(modelId)) score -= 5;
-  if (/exp|preview/i.test(modelId)) score -= 1;
   return score;
 }
 
-async function resolveModels(apiKey: string): Promise<string[]> {
+async function resolveFastFlashModels(apiKey: string): Promise<string[]> {
   const now = Date.now();
-  if (cachedModels && cachedModels.expiresAt > now && cachedModels.list.length > 0) {
-    return cachedModels.list;
+  if (cachedFlashModels && cachedFlashModels.expiresAt > now && cachedFlashModels.list.length > 0) {
+    return cachedFlashModels.list;
   }
 
-  const fallbackDefaults = [
-    "gemini-flash-latest",
-    "gemini-pro-latest",
-    "gemini-3.8-flash",
-    "gemini-3.8-pro",
-  ];
+  const defaults = ["gemini-flash-latest", "gemini-3.8-flash"];
 
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-      { cache: "no-store" }
+      { cache: "no-store", signal: AbortSignal.timeout(5000) }
     );
-    if (!res.ok) {
-      return fallbackDefaults;
-    }
+    if (!res.ok) return defaults;
 
     const data = await res.json();
     const models: GeminiModelInfo[] = Array.isArray(data?.models) ? data.models : [];
 
-    const candidates = models
+    const stableFlash = models
       .filter(
         (m) =>
           typeof m.name === "string" &&
@@ -55,24 +45,19 @@ async function resolveModels(apiKey: string): Promise<string[]> {
           m.supportedGenerationMethods.includes("generateContent")
       )
       .map((m) => (m.name || "").replace(/^models\//, ""))
-      .filter((id) => /^gemini-/i.test(id) && !/embedding|imagen|veo|audio|live/i.test(id));
+      .filter(
+        (id) =>
+          /^gemini-\d+(\.\d+)?-flash(-lite)?$/i.test(id) &&
+          !/exp|preview|thinking|audio|live/i.test(id)
+      );
 
-    candidates.sort((a, b) => parseVersionScore(b) - parseVersionScore(a));
+    stableFlash.sort((a, b) => parseFlashScore(b) - parseFlashScore(a));
 
-    const flashFirst = candidates.filter((id) => /flash/i.test(id));
-    const others = candidates.filter((id) => !/flash/i.test(id));
-    const ordered = Array.from(
-      new Set([...flashFirst.slice(0, 2), ...others.slice(0, 2), ...fallbackDefaults])
-    );
-
-    cachedModels = {
-      list: ordered,
-      expiresAt: now + 60 * 60 * 1000,
-    };
-
-    return ordered;
+    const result = Array.from(new Set([...stableFlash.slice(0, 2), "gemini-flash-latest"])).slice(0, 2);
+    cachedFlashModels = { list: result, expiresAt: now + 60 * 60 * 1000 };
+    return result;
   } catch {
-    return fallbackDefaults;
+    return defaults;
   }
 }
 
@@ -242,24 +227,30 @@ export async function POST(req: NextRequest) {
 작업 내용: ${detail}
 업체명: ${comp}`;
 
-    const models = await resolveModels(apiKey);
-    let lastError = "Gemini 호출에 실패했습니다.";
-    let lastStatus = 503;
+    const flashModels = await resolveFastFlashModels(apiKey);
+    const plan = [
+      { model: flashModels[0], thinkingLevel: "MEDIUM" },
+      { model: flashModels[1] || flashModels[0], thinkingLevel: "LOW" },
+    ];
 
-    for (const model of models) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
+    let lastError = "응답이 지연되고 있습니다. 잠시 후 다시 눌러주세요.";
+    let lastStatus = 504;
+
+    for (const step of plan) {
+      try {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${step.model}:generateContent?key=${apiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(25000),
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: selected.systemPrompt }] },
               contents: [{ role: "user", parts: [{ text: userPrompt }] }],
               generationConfig: {
                 temperature: 0.7,
                 maxOutputTokens: 8192,
-                thinkingConfig: { thinkingLevel: "LOW" },
+                thinkingConfig: { thinkingLevel: step.thinkingLevel },
               },
             }),
           }
@@ -272,30 +263,18 @@ export async function POST(req: NextRequest) {
               ?.map((p: { text?: string }) => p.text || "")
               .join("")
               .trim() || "";
-          return NextResponse.json({ text, model });
+          return NextResponse.json({ text });
         }
 
         lastError = data?.error?.message || "Gemini 호출 실패";
         lastStatus = res.status;
 
-        const isNotFound = res.status === 404 || /not found|not supported/i.test(lastError);
-        const isBusy =
-          res.status === 503 ||
-          res.status === 429 ||
-          /high demand|overloaded|unavailable/i.test(lastError);
-
-        if (isNotFound) {
-          cachedModels = null;
-          break;
+        if (res.status === 404 || /not found|not supported/i.test(lastError)) {
+          cachedFlashModels = null;
         }
-
-        if (!isBusy) {
-          return NextResponse.json({ error: lastError }, { status: lastStatus });
-        }
-
-        if (attempt < 2) {
-          await sleep(800 * attempt);
-        }
+      } catch {
+        lastError = "구글 AI 서버 응답이 25초를 초과해 빠른 모드로 전환합니다.";
+        lastStatus = 504;
       }
     }
 
