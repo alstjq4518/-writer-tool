@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
               generationConfig: {
                 temperature: 0.7,
                 maxOutputTokens: 8192,
-                thinkingConfig: { thinkingLevel: "HIGH" },
+                thinkingConfig: { thinkingLevel: "MEDIUM" },
               },
             }),
           }
@@ -101,3 +101,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
