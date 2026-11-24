@@ -2,6 +2,80 @@ import { NextRequest, NextResponse } from "next/server";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type GeminiModelInfo = {
+  name?: string;
+  supportedGenerationMethods?: string[];
+};
+
+let cachedModels: { list: string[]; expiresAt: number } | null = null;
+
+function parseVersionScore(modelId: string): number {
+  const match = modelId.match(/gemini-(\d+)(?:\.(\d+))?/i);
+  if (!match) return 0;
+  const major = Number(match[1] || 0);
+  const minor = Number(match[2] || 0);
+  let score = major * 100 + minor;
+  if (/pro/i.test(modelId)) score += 10;
+  if (/flash/i.test(modelId)) score += 20;
+  if (/lite/i.test(modelId)) score -= 5;
+  if (/exp|preview/i.test(modelId)) score -= 1;
+  return score;
+}
+
+async function resolveModels(apiKey: string): Promise<string[]> {
+  const now = Date.now();
+  if (cachedModels && cachedModels.expiresAt > now && cachedModels.list.length > 0) {
+    return cachedModels.list;
+  }
+
+  const fallbackDefaults = [
+    "gemini-flash-latest",
+    "gemini-pro-latest",
+    "gemini-3.8-flash",
+    "gemini-3.8-pro",
+  ];
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) {
+      return fallbackDefaults;
+    }
+
+    const data = await res.json();
+    const models: GeminiModelInfo[] = Array.isArray(data?.models) ? data.models : [];
+
+    const candidates = models
+      .filter(
+        (m) =>
+          typeof m.name === "string" &&
+          Array.isArray(m.supportedGenerationMethods) &&
+          m.supportedGenerationMethods.includes("generateContent")
+      )
+      .map((m) => (m.name || "").replace(/^models\//, ""))
+      .filter((id) => /^gemini-/i.test(id) && !/embedding|imagen|veo|audio|live/i.test(id));
+
+    candidates.sort((a, b) => parseVersionScore(b) - parseVersionScore(a));
+
+    const flashFirst = candidates.filter((id) => /flash/i.test(id));
+    const others = candidates.filter((id) => !/flash/i.test(id));
+    const ordered = Array.from(
+      new Set([...flashFirst.slice(0, 2), ...others.slice(0, 2), ...fallbackDefaults])
+    );
+
+    cachedModels = {
+      list: ordered,
+      expiresAt: now + 60 * 60 * 1000,
+    };
+
+    return ordered;
+  } catch {
+    return fallbackDefaults;
+  }
+}
+
 const WRITER_PROMPTS: Record<string, { company: string; systemPrompt: string }> = {
   sonkkeut: {
     company: "손끝홈케어",
@@ -168,7 +242,7 @@ export async function POST(req: NextRequest) {
 작업 내용: ${detail}
 업체명: ${comp}`;
 
-    const models = ["gemini-3.8-flash", "gemini-3.8-flash-lite", "gemini-3.8-pro"];
+    const models = await resolveModels(apiKey);
     let lastError = "Gemini 호출에 실패했습니다.";
     let lastStatus = 503;
 
@@ -198,16 +272,22 @@ export async function POST(req: NextRequest) {
               ?.map((p: { text?: string }) => p.text || "")
               .join("")
               .trim() || "";
-          return NextResponse.json({ text });
+          return NextResponse.json({ text, model });
         }
 
         lastError = data?.error?.message || "Gemini 호출 실패";
         lastStatus = res.status;
 
+        const isNotFound = res.status === 404 || /not found|not supported/i.test(lastError);
         const isBusy =
           res.status === 503 ||
           res.status === 429 ||
           /high demand|overloaded|unavailable/i.test(lastError);
+
+        if (isNotFound) {
+          cachedModels = null;
+          break;
+        }
 
         if (!isBusy) {
           return NextResponse.json({ error: lastError }, { status: lastStatus });
