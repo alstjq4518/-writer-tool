@@ -53,7 +53,7 @@ async function resolveFastFlashModels(apiKey: string): Promise<string[]> {
 
     stableFlash.sort((a, b) => parseFlashScore(b) - parseFlashScore(a));
 
-    const result = Array.from(new Set([...stableFlash.slice(0, 2), "gemini-flash-latest"])).slice(0, 2);
+    const result = Array.from(new Set([...stableFlash, "gemini-flash-latest", "gemini-pro-latest"])).slice(0, 5);
     cachedFlashModels = { list: result, expiresAt: now + 60 * 60 * 1000 };
     return result;
   } catch {
@@ -228,10 +228,7 @@ export async function POST(req: NextRequest) {
 업체명: ${comp}`;
 
     const flashModels = await resolveFastFlashModels(apiKey);
-    const plan = [
-      { model: flashModels[0], thinkingLevel: "MEDIUM" },
-      { model: flashModels[1] || flashModels[0], thinkingLevel: "LOW" },
-    ];
+    const plan = flashModels.map((m, idx) => ({ model: m, thinkingLevel: idx === 0 ? "MEDIUM" : "LOW" }));
 
     let lastError = "응답이 지연되고 있습니다. 잠시 후 다시 눌러주세요.";
     let lastStatus = 504;
