@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
               contents: [{ role: "user", parts: [{ text: userPrompt }] }],
               generationConfig: {
                 temperature: 0.7,
-                maxOutputTokens: 4096,
+                maxOutputTokens: 8192,
                 thinkingConfig: { thinkingLevel: "HIGH" },
               },
             }),
