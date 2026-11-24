@@ -41,14 +41,18 @@ export async function POST(req: NextRequest) {
 업체명: ${comp}`;
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: sys }] },
           contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 4096, thinkingConfig: { thinkingLevel: "HIGH" } },
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 4096,
+            thinkingConfig: { thinkingLevel: "HIGH" },
+          },
         }),
       }
     );
