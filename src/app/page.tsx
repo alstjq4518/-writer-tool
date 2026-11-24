@@ -152,4 +152,52 @@ export default function Page() {
               type="text"
               value={company}
               onChange={(e) => setCompany(e.target.value)}
-              className="w-full rounded-lg border border-slate-300
+              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium"
+            />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={loading}
+          className="mt-5 w-full rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+        >
+          {loading ? `${company} 실시간 작성 중...` : `${company} 블로그 초안 생성하기`}
+        </button>
+
+        {errorMsg && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {errorMsg}
+          </div>
+        )}
+
+        {(output || loading) && (
+          <div className="mt-6 border-t border-slate-200 pt-5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold">
+                {loading ? "실시간 생성 중..." : "생성된 초안"} (공백 포함 {output.length}자)
+              </span>
+              <button
+                type="button"
+                onClick={handleCopy}
+                disabled={!output}
+                className="rounded-md bg-slate-200 px-3 py-1 text-xs font-medium hover:bg-slate-300 disabled:opacity-40 cursor-pointer"
+              >
+                {copied ? "복사 완료!" : "전체 복사"}
+              </button>
+            </div>
+            <textarea
+              ref={textareaRef}
+              readOnly
+              rows={20}
+              value={output}
+              placeholder="잠시만 기다리시면 본문이 실시간으로 써집니다..."
+              className="w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm leading-relaxed"
+            />
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}

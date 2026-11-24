@@ -1,4 +1,4 @@
-﻿import { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 
 const WRITER_PROMPTS: Record<string, { company: string; systemPrompt: string }> = {
   sonkkeut: {
@@ -204,4 +204,68 @@ export async function POST(req: NextRequest) {
         /high demand|overloaded|unavailable/i.test(lastError);
 
       if (!isBusy) {
-        return new Response
+        return new Response(JSON.stringify({ error: lastError }), {
+          status: lastStatus,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    if (!upstreamRes || !upstreamRes.body) {
+      return new Response(JSON.stringify({ error: lastError }), {
+        status: lastStatus,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const reader = upstreamRes.body.getReader();
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        let buffer = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) continue;
+              const jsonStr = trimmed.slice(5).trim();
+              if (!jsonStr || jsonStr === "[DONE]") continue;
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const parts = parsed?.candidates?.[0]?.content?.parts || [];
+                for (const part of parts) {
+                  if (part?.text && !part?.thought) {
+                    controller.enqueue(encoder.encode(part.text));
+                  }
+                }
+              } catch {
+              }
+            }
+          }
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
+    });
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ error: e instanceof Error ? e.message : "서버 오류" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+}
