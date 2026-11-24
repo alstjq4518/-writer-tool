@@ -1,6 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+﻿import { NextRequest } from "next/server";
 
 const WRITER_PROMPTS: Record<string, { company: string; systemPrompt: string }> = {
   sonkkeut: {
@@ -151,10 +149,10 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "GEMINI_API_KEY가 설정되지 않았습니다." },
-        { status: 500 }
-      );
+      return new Response(JSON.stringify({ error: "GEMINI_API_KEY가 설정되지 않았습니다." }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const selected = WRITER_PROMPTS[writerId] || WRITER_PROMPTS.sonkkeut;
@@ -169,61 +167,41 @@ export async function POST(req: NextRequest) {
 업체명: ${comp}`;
 
     const models = ["gemini-3.8-flash", "gemini-3.8-flash-lite", "gemini-3.8-pro"];
+    let upstreamRes: Response | null = null;
     let lastError = "Gemini 호출에 실패했습니다.";
     let lastStatus = 503;
 
     for (const model of models) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: selected.systemPrompt }] },
-              contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-              generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 8192,
-                thinkingConfig: { thinkingLevel: "MEDIUM" },
-              },
-            }),
-          }
-        );
-
-        const data = await res.json();
-        if (res.ok) {
-          const text =
-            data?.candidates?.[0]?.content?.parts
-              ?.map((p: { text?: string }) => p.text || "")
-              .join("")
-              .trim() || "";
-          return NextResponse.json({ text });
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: selected.systemPrompt }] },
+            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 8192,
+              thinkingConfig: { thinkingLevel: "MEDIUM" },
+            },
+          }),
         }
+      );
 
-        lastError = data?.error?.message || "Gemini 호출 실패";
-        lastStatus = res.status;
-
-        const isBusy =
-          res.status === 503 ||
-          res.status === 429 ||
-          /high demand|overloaded|unavailable/i.test(lastError);
-
-        if (!isBusy) {
-          return NextResponse.json({ error: lastError }, { status: lastStatus });
-        }
-
-        if (attempt < 2) {
-          await sleep(1200 * attempt);
-        }
+      if (res.ok && res.body) {
+        upstreamRes = res;
+        break;
       }
-    }
 
-    return NextResponse.json({ error: lastError }, { status: lastStatus });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "서버 오류" },
-      { status: 500 }
-    );
-  }
-}
+      const errData = await res.json().catch(() => null);
+      lastError = errData?.error?.message || "Gemini 호출 실패";
+      lastStatus = res.status;
+
+      const isBusy =
+        res.status === 503 ||
+        res.status === 429 ||
+        /high demand|overloaded|unavailable/i.test(lastError);
+
+      if (!isBusy) {
+        return new Response

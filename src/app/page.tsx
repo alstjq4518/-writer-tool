@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 const WRITERS = [
   { id: "sonkkeut", name: "손끝홈케어", desc: "따뜻·친절한 이웃 어투" },
@@ -21,6 +21,7 @@ export default function Page() {
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const handleSelectWriter = (id: string, name: string) => {
     setWriterId(id);
@@ -30,6 +31,7 @@ export default function Page() {
   const handleGenerate = async () => {
     setLoading(true);
     setErrorMsg("");
+    setOutput("");
     setCopied(false);
 
     try {
@@ -38,11 +40,30 @@ export default function Page() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ writerId, keyword, location, workDetail, company }),
       });
-      const data = await res.json();
+
       if (!res.ok) {
-        setErrorMsg(data.error || "오류가 발생했습니다.");
-      } else {
-        setOutput(data.text || "");
+        const data = await res.json().catch(() => null);
+        setErrorMsg(data?.error || "오류가 발생했습니다.");
+        return;
+      }
+
+      if (!res.body) {
+        setErrorMsg("응답 스트림을 받지 못했습니다.");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += decoder.decode(value, { stream: true });
+        setOutput(fullText);
+        if (textareaRef.current) {
+          textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+        }
       }
     } catch {
       setErrorMsg("네트워크 오류가 발생했습니다.");
@@ -63,7 +84,7 @@ export default function Page() {
       <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow-sm border border-slate-200">
         <h1 className="text-2xl font-bold">블로그 기술 보고서 작성기 (Gemini 연동)</h1>
         <p className="mt-1 text-sm text-slate-600">
-          작가(업체)를 선택하면 전용 프롬프트와 업체명이 자동 설정되며, 1,500~2,000자 분량의 초안을 작성합니다.
+          작가(업체)를 선택하면 전용 프롬프트와 업체명이 자동 설정되며, 1,500~2,000자 분량의 초안을 실시간으로 작성합니다.
         </p>
 
         <div className="mt-5">
@@ -131,49 +152,4 @@ export default function Page() {
               type="text"
               value={company}
               onChange={(e) => setCompany(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium"
-            />
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={loading}
-          className="mt-5 w-full rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
-        >
-          {loading ? `${company} 전용 프롬프트로 작성 중...` : `${company} 블로그 초안 생성하기`}
-        </button>
-
-        {errorMsg && (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {errorMsg}
-          </div>
-        )}
-
-        {output && (
-          <div className="mt-6 border-t border-slate-200 pt-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold">
-                생성된 초안 (공백 포함 {output.length}자)
-              </span>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="rounded-md bg-slate-200 px-3 py-1 text-xs font-medium hover:bg-slate-300 cursor-pointer"
-              >
-                {copied ? "복사 완료!" : "전체 복사"}
-              </button>
-            </div>
-            <textarea
-              readOnly
-              rows={20}
-              value={output}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm leading-relaxed"
-            />
-          </div>
-        )}
-      </div>
-    </main>
-  );
-}
+              className="w-full rounded-lg border border-slate-300
