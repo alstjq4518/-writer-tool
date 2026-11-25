@@ -278,6 +278,7 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKey = (process.env.GEMINI_API_KEY || "").trim();
+    const keyPreview = `${apiKey.slice(0, 6)}...${apiKey.slice(-4)} (len=${apiKey.length})`;
     if (!apiKey) {
       return NextResponse.json(
         { error: "GEMINI_API_KEY가 설정되지 않았습니다." },
@@ -354,7 +355,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ error: lastError }, { status: lastStatus });
+  return NextResponse.json(
+  { error: `${lastError} [key=${keyPreview}]` },
+  { status: lastStatus }
+);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "서버 오류" },
