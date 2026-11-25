@@ -29,8 +29,13 @@ async function resolveFastFlashModels(apiKey: string): Promise<string[]> {
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models
-    { cache: "no-store", headers: { "x-goog-api-key": apiKey }, signal: AbortSignal.timeout(5000) }
+      "https://generativelanguage.googleapis.com/v1beta/models",
+      {
+        cache: "no-store",
+        headers: { "x-goog-api-key": apiKey },
+        signal: AbortSignal.timeout(5000),
+      }
+    );
     if (!res.ok) return defaults;
 
     const data = await res.json();
@@ -297,6 +302,14 @@ export async function POST(req: NextRequest) {
 작업 내용: ${detail}
 업체명: ${comp}`;
 
+    const finalSystemInstruction = `${selected.systemPrompt}
+
+[최종 절대 엄수 규칙]
+- 첫 줄에 안녕하세요 등 인사말 및 자기소개를 절대 쓰지 마십시오.
+- ~답니다, ~네요 같은 가벼운 구어체 어미를 금지하고 ~습니다, ~입니다로 통일하십시오.
+- 주 밸브(양수기 밸브)처럼 본문 단어 뒤에 괄호() 부연 설명을 쓰지 마십시오.
+- 7번째 마지막 출장 안내 섹션 맨 위에도 반드시 대괄호 [소제목]을 출력하고 소제목 아래 빈 줄을 넣으십시오.`;
+
     const flashModels = await resolveFastFlashModels(apiKey);
     const plan = flashModels.map((m, idx) => ({
       model: m,
@@ -309,19 +322,16 @@ export async function POST(req: NextRequest) {
     for (const step of plan) {
       try {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${step.model}:generateContent?key=${apiKey}
-[최종 절대 엄수 규칙]
-- 첫 줄에 안녕하세요 등 인사말 및 자기소개를 절대 쓰지 마십시오.
-- ~답니다, ~네요 같은 가벼운 구어체 어미를 금지하고 ~습니다, ~입니다로 통일하십시오.
-- 주 밸브(양수기 밸브)처럼 본문 단어 뒤에 괄호() 부연 설명을 쓰지 마십시오.
-- 7번째 마지막 출장 안내 섹션 맨 위에도 반드시 대괄호 [소제목]을 출력하고 소제목 아래 빈 줄을 넣으십시오.
-`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${step.model}:generateContent`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey,
+            },
             signal: AbortSignal.timeout(25000),
             body: JSON.stringify({
-              systemInstruction: { parts: [{ text: selected.systemPrompt }] },
+              systemInstruction: { parts: [{ text: finalSystemInstruction }] },
               contents: [{ role: "user", parts: [{ text: userPrompt }] }],
               generationConfig: {
                 temperature: 0.7,
@@ -354,10 +364,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-  return NextResponse.json(
-  { error: `${lastError} [key=${keyPreview}]` },
-  { status: lastStatus }
-);
+    return NextResponse.json(
+      { error: `${lastError} [key=${keyPreview}]` },
+      { status: lastStatus }
+    );
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "서버 오류" },
