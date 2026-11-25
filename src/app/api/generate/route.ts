@@ -85,6 +85,33 @@ function verifyAccessCode(code: string): { valid: boolean; role: string } {
   return { valid: false, role: "" };
 }
 
+function sanitizeDraftText(text: string): string {
+  let out = text;
+
+  const replacements: [RegExp, string][] = [
+    [/사구/g, "4구"],
+    [/가스렌지/g, "가스레인지"],
+    [/나사선/g, "나사산"],
+    [/셋팅/g, "세팅"],
+    [/턱없이/g, "틈 없이"],
+    [/정성적으로/g, "정상적으로"],
+    [/파오르는/g, "타오르는"],
+    [/서비스\s*니플/g, "연장 부속"],
+    [/니플/g, "연장 부속"],
+    [/비약적으로/g, "크게"],
+    [/슬라이드\s*바/g, "샤워기 봉"],
+    [/체크/g, "확인"],
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    out = out.replace(pattern, replacement);
+  }
+
+  out = out.replace(/\n(A\.\s)/g, "\n\n$1");
+
+  return out;
+}
+
 const COMMON_REALITY_AND_QUALITY_RULES = `[핵심 규칙: 현장 리얼리티 자동 생성 및 품질 방어]
 - 사용자가 작업 내용만 간단히 입력하더라도, 해당 작업에서 실제 시공자가 겪을 법한 구체적인 '현장 특이사항' 1~2가지를 스스로 설정하여 본문 2번째, 3번째 섹션에 자연스럽게 녹여내십시오. (매번 다른 상황을 랜덤하게 조합할 것)
   - 상황 예시 1 (배관/수전/설비): 벽배수 vs 바닥배수 구조 차이, 매립 배관 좌우 깊이 단차 보정, 기존 너트/편봉의 심한 부식 및 고착, 배관 규격 및 각도 불일치 보정 등
@@ -308,7 +335,8 @@ export async function POST(req: NextRequest) {
 - 첫 줄에 안녕하세요 등 인사말 및 자기소개를 절대 쓰지 마십시오.
 - ~답니다, ~네요 같은 가벼운 구어체 어미를 금지하고 ~습니다, ~입니다로 통일하십시오.
 - 주 밸브(양수기 밸브)처럼 본문 단어 뒤에 괄호() 부연 설명을 쓰지 마십시오.
-- 7번째 마지막 출장 안내 섹션 맨 위에도 반드시 대괄호 [소제목]을 출력하고 소제목 아래 빈 줄을 넣으십시오.`;
+- 7번째 마지막 출장 안내 섹션 맨 위에도 반드시 대괄호 [소제목]을 출력하고 소제목 아래 빈 줄을 넣으십시오.
+- 가스레인지·인덕션 작업 글에는 "수압"이라는 단어를 절대 쓰지 마십시오.`;
 
     const flashModels = await resolveFastFlashModels(apiKey);
     const plan = flashModels.map((m, idx) => ({
@@ -344,11 +372,12 @@ export async function POST(req: NextRequest) {
 
         const data = await res.json();
         if (res.ok) {
-          const text =
+          const rawText =
             data?.candidates?.[0]?.content?.parts
               ?.map((p: { text?: string }) => p.text || "")
               .join("")
               .trim() || "";
+          const text = sanitizeDraftText(rawText);
           return NextResponse.json({ text });
         }
 
