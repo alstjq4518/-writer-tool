@@ -29,9 +29,8 @@ async function resolveFastFlashModels(apiKey: string): Promise<string[]> {
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-      { cache: "no-store", signal: AbortSignal.timeout(5000) }
-    );
+      `https://generativelanguage.googleapis.com/v1beta/models
+    { cache: "no-store", headers: { "x-goog-api-key": apiKey }, signal: AbortSignal.timeout(5000) }
     if (!res.ok) return defaults;
 
     const data = await res.json();
