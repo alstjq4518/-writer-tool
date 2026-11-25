@@ -277,7 +277,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ valid: true, role: auth.role });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = (process.env.GEMINI_API_KEY || "").trim();
     if (!apiKey) {
       return NextResponse.json(
         { error: "GEMINI_API_KEY가 설정되지 않았습니다." },
