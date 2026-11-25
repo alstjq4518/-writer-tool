@@ -309,7 +309,13 @@ export async function POST(req: NextRequest) {
     for (const step of plan) {
       try {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${step.model}:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${step.model}:generateContent?key=${apiKey}
+[최종 절대 엄수 규칙]
+- 첫 줄에 안녕하세요 등 인사말 및 자기소개를 절대 쓰지 마십시오.
+- ~답니다, ~네요 같은 가벼운 구어체 어미를 금지하고 ~습니다, ~입니다로 통일하십시오.
+- 주 밸브(양수기 밸브)처럼 본문 단어 뒤에 괄호() 부연 설명을 쓰지 마십시오.
+- 7번째 마지막 출장 안내 섹션 맨 위에도 반드시 대괄호 [소제목]을 출력하고 소제목 아래 빈 줄을 넣으십시오.
+`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
