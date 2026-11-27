@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 
+type DraftMode = "review" | "recovery";
+
 const WRITERS = [
   { id: "sonkkeut", name: "손끝홈케어", desc: "따뜻·친절한 이웃 어투" },
   { id: "seopgun", name: "섭군의집수리", desc: "정중한 기술 보고서 어투" },
@@ -17,6 +19,7 @@ export default function Page() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
 
+  const [mode, setMode] = useState<DraftMode>("review");
   const [writerId, setWriterId] = useState(WRITERS[0].id);
   const [keyword, setKeyword] = useState("");
   const [location, setLocation] = useState("");
@@ -93,7 +96,15 @@ export default function Page() {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessCode, writerId, keyword, location, workDetail, company }),
+        body: JSON.stringify({
+          accessCode,
+          mode,
+          writerId,
+          keyword,
+          location,
+          workDetail,
+          company,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -154,6 +165,8 @@ export default function Page() {
       ? WRITERS
       : WRITERS.filter((w) => w.id === verifiedRole);
 
+  const isRecovery = mode === "recovery";
+
   return (
     <main className="min-h-screen bg-slate-100 py-8 px-4 text-slate-900">
       <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow-sm border border-slate-200">
@@ -173,6 +186,40 @@ export default function Page() {
           >
             코드 변경
           </button>
+        </div>
+
+        {/* 발행 모드 스위치 */}
+        <div className="mt-5">
+          <label className="block text-sm font-semibold mb-2">발행 모드 선택</label>
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1.5 border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setMode("review")}
+              className={`rounded-lg py-2.5 px-3 text-sm font-semibold transition cursor-pointer ${
+                !isRecovery
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              작업 후기 모드
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("recovery")}
+              className={`rounded-lg py-2.5 px-3 text-sm font-semibold transition cursor-pointer ${
+                isRecovery
+                  ? "bg-emerald-700 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              지수 복구 정보성 모드
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-slate-500">
+            {isRecovery
+              ? "지역명·연락처·홍보 멘트를 뺀 순수 정보성 글로 지수를 복구합니다. 품목 단어 하나만 적어도 주제를 자동 구성합니다."
+              : "현장 시공 후기 및 상담 안내가 포함된 일반 발행용 원고를 생성합니다."}
+          </p>
         </div>
 
         <div className="mt-5">
@@ -207,32 +254,49 @@ export default function Page() {
 
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium mb-1">핵심 키워드</label>
+            <label className="block text-sm font-medium mb-1">
+              {isRecovery ? "정보성 품목 (단어 하나만 입력 가능)" : "핵심 키워드"}
+            </label>
             <input
               type="text"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="예: 욕실 샤워 수전 교체"
+              placeholder={
+                isRecovery ? "예: 가스레인지, 싱크대 수전, 주방 후드, 도어락" : "예: 욕실 샤워 수전 교체"
+              }
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">작업 현장 (동/단지명)</label>
+            <label className="block text-sm font-medium mb-1">
+              {isRecovery ? "작업 현장 (정보성 모드 미사용)" : "작업 현장 (동/단지명)"}
+            </label>
             <input
               type="text"
               value={location}
+              disabled={isRecovery}
               onChange={(e) => setLocation(e.target.value)}
-              placeholder="예: 기흥구 보정동 ○○아파트 (비워도 됨)"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              placeholder={
+                isRecovery
+                  ? "정보성 모드에서는 지역명을 넣지 않습니다"
+                  : "예: 기흥구 보정동 ○○아파트 (비워도 됨)"
+              }
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">작업 내용</label>
+            <label className="block text-sm font-medium mb-1">
+              {isRecovery ? "추가 강조 포인트 (선택 · 비워도 됨)" : "작업 내용"}
+            </label>
             <input
               type="text"
               value={workDetail}
               onChange={(e) => setWorkDetail(e.target.value)}
-              placeholder="예: 기존 수전 철거 및 신규 설치"
+              placeholder={
+                isRecovery
+                  ? "비워두면 품목별 정보·점검 기준을 자동 구성합니다"
+                  : "예: 기존 수전 철거 및 신규 설치"
+              }
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
@@ -252,9 +316,15 @@ export default function Page() {
           type="button"
           onClick={handleGenerate}
           disabled={loading}
-          className="mt-5 w-full rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+          className={`mt-5 w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-50 cursor-pointer ${
+            isRecovery
+              ? "bg-emerald-700 hover:bg-emerald-800"
+              : "bg-slate-900 hover:bg-slate-800"
+          }`}
         >
-          {loading ? `${company} 전용 프롬프트로 작성 중...` : `${company} 블로그 초안 생성하기`}
+          {loading
+            ? `${company} ${isRecovery ? "지수 복구 정보성" : "블로그"} 초안 작성 중...`
+            : `${company} ${isRecovery ? "지수 복구 정보성 초안" : "블로그 초안"} 생성하기`}
         </button>
 
         {errorMsg && (
